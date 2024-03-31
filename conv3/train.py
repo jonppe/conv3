@@ -144,28 +144,33 @@ def main(data_path=DATAPATH):
 
     # Training loop
     num_epochs = 800
+    run = True
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         epoch_acc = 0.0
+        try:
+            for batch_xs, batch_ys in tqdm(
+                dataloader, desc=f"Epoch {epoch+1}/{num_epochs}"
+            ):
+                optimizer.zero_grad()
 
-        for batch_xs, batch_ys in tqdm(
-            dataloader, desc=f"Epoch {epoch+1}/{num_epochs}"
-        ):
-            optimizer.zero_grad()
+                outputs = model(batch_xs)
+                loss = criterion(outputs, batch_ys)
 
-            outputs = model(batch_xs)
-            loss = criterion(outputs, batch_ys)
+                loss.backward()
+                optimizer.step()
 
-            loss.backward()
-            optimizer.step()
-
-            epoch_loss += loss.item()
-            epoch_acc += (
-                (torch.argmax(outputs, dim=-1) == torch.argmax(batch_ys, dim=-1))
-                .float()
-                .mean()
-                .item()
-            )
+                epoch_loss += loss.item()
+                epoch_acc += (
+                    (torch.argmax(outputs, dim=-1) == torch.argmax(batch_ys, dim=-1))
+                    .float()
+                    .mean()
+                    .item()
+                )
+        except KeyboardInterrupt:
+            print("Interrupted")
+            run = False
+            break
 
         epoch_loss /= len(dataloader)
         epoch_acc /= len(dataloader)
@@ -194,6 +199,8 @@ def main(data_path=DATAPATH):
                 "--------------------------------PREDICT----------------------------------------"
             )
             print(output_seq)
+        if not run:
+            break
 
 
 if __name__ == "__main__":
