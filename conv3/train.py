@@ -6,8 +6,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
 import numpy as np
-from tqdm import tqdm
 from sklearn.metrics.pairwise import euclidean_distances
+
+
+import lightning as L
+
 
 DATAPATH = pathlib.Path("/datasets/simplebooks/")
 
@@ -43,7 +46,7 @@ def convert(n):
 
 
 def reverser(arr):
-    arr = arr.numpy()
+    arr = arr.cpu().numpy()
     best = float("inf")
     max_word = None
     for word, vec in vw2v:
@@ -89,7 +92,6 @@ class LLM(nn.Module):
         return x
 
 
-# Prepare the dataset
 class LLMDataset(data.Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
@@ -100,8 +102,8 @@ class LLMDataset(data.Dataset):
     def __getitem__(self, index):
         size = cfg["sequenceSize"]
         sample = self.dataset[index]
-        xs = sample[:size]
-        ys = sample[size : size + size]
+        xs = np.array(sample[:size])
+        ys = np.array(sample[size : size + size])
         assert len(xs) == len(ys) == size
         return torch.tensor(xs, dtype=torch.float32), torch.tensor(
             ys, dtype=torch.float32
@@ -109,7 +111,9 @@ class LLMDataset(data.Dataset):
 
 
 # Load and preprocess the dataset
-def load_dataset(books):
+def load_dataset(data_path):
+    books = sorted([os.path.join(data_path, f) for f in os.listdir(data_path)])
+
     dataset = []
     size = cfg["sequenceSize"]
     psteps = cfg["predictSteps"]
@@ -127,81 +131,97 @@ def load_dataset(books):
     return dataset
 
 
-def main(data_path=DATAPATH):
-    book_path = data_path / "simplebooks" / "simplebooks-2"
-    books = sorted([os.path.join(book_path, f) for f in os.listdir(book_path)])
-    dataset = load_dataset(books)
+class BookDataModule(L.LightningDataModule):
+    def __init__(
+        self,
+        data_dir: pathlib.Path = DATAPATH / "simplebooks" / "simplebooks-2",
+        batch_size: int = 512,
+        num_workers: int = 4,
+        validation_size: int = 4,
+    ) -> None:
+        super().__init__()
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.validation_size = validation_size
 
-    # Create data loader
-    dataloader = data.DataLoader(
-        LLMDataset(dataset), batch_size=cfg["batchSize"], shuffle=True
-    )
+    def setup(self, stage: str) -> None:
+        self.dataset = load_dataset(self.data_dir)
 
-    # Initialize the model, loss function, and optimizer
-    model = LLM()
-    criterion = nn.MSELoss()  # Changed loss function to Mean Squared Error
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-    # Training loop
-    num_epochs = 800
-    run = True
-    for epoch in range(num_epochs):
-        epoch_loss = 0.0
-        epoch_acc = 0.0
-        try:
-            for batch_xs, batch_ys in tqdm(
-                dataloader, desc=f"Epoch {epoch+1}/{num_epochs}"
-            ):
-                optimizer.zero_grad()
-
-                outputs = model(batch_xs)
-                loss = criterion(outputs, batch_ys)
-
-                loss.backward()
-                optimizer.step()
-
-                epoch_loss += loss.item()
-                epoch_acc += (
-                    (torch.argmax(outputs, dim=-1) == torch.argmax(batch_ys, dim=-1))
-                    .float()
-                    .mean()
-                    .item()
-                )
-        except KeyboardInterrupt:
-            print("Interrupted")
-            run = False
-            break
-
-        epoch_loss /= len(dataloader)
-        epoch_acc /= len(dataloader)
-
-        print(
-            f"Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss:.4f}, Accuracy: {epoch_acc:.4f}"
+    def train_dataloader(self):
+        return data.DataLoader(
+            LLMDataset(self.dataset[: self.validation_size]),
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers,
         )
 
-        # Save the model checkpoint
-        torch.save(model.state_dict(), "./model.pth")
-
-        # Generate sample output
-        with torch.no_grad():
-            random_index = np.random.randint(len(dataset))
-            input_seq = dataset[random_index]
-            input_tensor = torch.tensor(input_seq).unsqueeze(0)
-
-            output_tensor = model(input_tensor)
-            output_seq = reparse(output_tensor[0])
-
-            print(
-                "---------------------------------INPUT-----------------------------------------"
-            )
-            print(" ".join(reverser(torch.tensor(word)) for word in input_seq))
-            print(
-                "--------------------------------PREDICT----------------------------------------"
-            )
-            print(output_seq)
-        if not run:
-            break
+    def val_dataloader(self):
+        return data.DataLoader(
+            LLMDataset(self.dataset[-self.validation_size :]),
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+        )
 
 
-if __name__ == "__main__":
-    main()
+class Conv3Module(L.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.model = LLM()
+
+    def compute_loss(self, batch):
+        batch_xs, batch_ys = batch
+        criterion = nn.MSELoss()  # Changed loss function to Mean Squared Error
+        outputs = self.model(batch_xs)
+        accuracy = (
+            (torch.argmax(outputs, dim=-1) == torch.argmax(batch_ys, dim=-1))
+            .float()
+            .mean()
+            .item()
+        )
+
+        return criterion(outputs, batch_ys), accuracy, outputs
+
+    def training_step(self, batch, batch_idx):
+        print("Training step")
+
+        loss, accuracy, _ = self.compute_loss(batch)
+        # Logging to TensorBoard (if installed) by default
+        self.log("train_loss", loss)
+
+        # logs metrics for each training_step,
+        # and the average across the epoch, to the progress bar and logger
+        self.log(
+            "accuracy",
+            accuracy,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        print("Validation step")
+        loss, accuracy, outputs = self.compute_loss(batch)
+        self.log("val_loss", loss)
+        self.log("val_accuracy", accuracy, on_step=True, on_epoch=True, logger=True)
+        if batch_idx >= 2:
+            return
+        print("Reparsing")
+        output_seq = reparse(outputs[0][0:50])
+        print("Reparsing done")
+
+        print(
+            "---------------------------------INPUT-----------------------------------------"
+        )
+        # print(" ".join(reverser(torch.tensor(word)) for word in input_seq))
+        print(
+            "--------------------------------PREDICT----------------------------------------"
+        )
+        print(output_seq)
+        print("Validation done")
+
+    def configure_optimizers(self):
+        return optim.Adam(self.parameters(), lr=0.001)
