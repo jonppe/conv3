@@ -98,23 +98,11 @@ class LLMDataset(data.Dataset):
         return len(self.dataset)
 
     def __getitem__(self, index):
-        xs = self.dataset[index][: cfg["sequenceSize"]]
-        ys = self.dataset[index][
-            cfg["sequenceSize"] : cfg["sequenceSize"] + cfg["sequenceSize"]
-        ]
-
-        # Convert xs and ys to NumPy arrays
-        xs = np.array(xs)
-        ys = np.array(ys)
-
-        # Pad or truncate the sequences to the fixed size
-        xs = np.pad(
-            xs, ((0, cfg["sequenceSize"] - xs.shape[0]), (0, 0)), mode="constant"
-        )[: cfg["sequenceSize"]]
-        ys = np.pad(
-            ys, ((0, cfg["sequenceSize"] - ys.shape[0]), (0, 0)), mode="constant"
-        )[: cfg["sequenceSize"]]
-
+        size = cfg["sequenceSize"]
+        sample = self.dataset[index]
+        xs = sample[:size]
+        ys = sample[size : size + size]
+        assert len(xs) == len(ys) == size
         return torch.tensor(xs, dtype=torch.float32), torch.tensor(
             ys, dtype=torch.float32
         )
@@ -123,13 +111,17 @@ class LLMDataset(data.Dataset):
 # Load and preprocess the dataset
 def load_dataset(books):
     dataset = []
+    size = cfg["sequenceSize"]
+    psteps = cfg["predictSteps"]
+    chunk_len = size + psteps
     for book_path in books:
         with open(book_path, "r", encoding="utf-8") as f:  # Added encoding parameter
             book = f.read().split(" ")
         book = [convert(word) for word in book]
+        # here we split into chunks of sequenceSize+predictSteps so that the first half is the input and the second half is target.
+        # Currently, the chunks don't overlap. TODO: is this correct?
         book_chunks = [
-            book[i : i + cfg["sequenceSize"]]
-            for i in range(0, len(book), cfg["sequenceSize"])
+            book[i : i + chunk_len] for i in range(0, len(book) - chunk_len, 512)
         ]
         dataset.extend(book_chunks)
     return dataset
