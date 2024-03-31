@@ -68,27 +68,30 @@ def reparse(v):
 class LLM(nn.Module):
     def __init__(self):
         super(LLM, self).__init__()
-        self.conv3d1 = nn.Linear(8, 8)
-        self.tanh1 = nn.Tanh()
-        self.conv3d2 = nn.Linear(8, 8)
-        self.tanh2 = nn.Tanh()
-        self.conv3d3 = nn.Linear(8, 8)
-        self.tanh3 = nn.Tanh()
-        self.conv3d4 = nn.Linear(8, 8)
-        self.tanh4 = nn.Tanh()
-
-        self.dense = nn.Linear(8, 8)
+        self.conv3d1 = nn.Conv3d(
+            8, 32, kernel_size=1, padding="same"
+        )  # Adjust padding if needed
+        self.conv3d2 = nn.Conv3d(
+            32, 32, kernel_size=5, padding="same"
+        )  # Consider padding for even filters
+        self.conv3d3 = nn.Conv3d(32, 32, kernel_size=1, padding="same")
+        self.conv3d4 = nn.Conv3d(
+            32, 32, kernel_size=8, padding="same"
+        )  # Consider padding for odd filters
+        self.dense1 = nn.Linear(32, 8)  # Efficient matrix multiplication
 
     def forward(self, x):
-        x = x.float()  # Cast the input tensor to float32
-
-        x = self.tanh1(self.conv3d1(x))
-        x = self.tanh2(self.conv3d2(x))
-        x = self.tanh3(self.conv3d3(x))
-        x = self.tanh4(self.conv3d4(x))
-
-        x = self.dense(x)
-
+        x = x.reshape(-1, 8, 8, 8, 8)
+        x = self.conv3d1(x)
+        x = nn.functional.tanh(x)  # Add activation function after Conv3D1
+        x = self.conv3d2(x)
+        x = nn.functional.tanh(x)
+        x = self.conv3d3(x)
+        x = nn.functional.tanh(x)
+        x = self.conv3d4(x)
+        x = nn.functional.tanh(x)
+        x = x.reshape(-1, 512, 32)
+        x = self.dense1(x)
         return x
 
 
@@ -168,6 +171,7 @@ class Conv3Module(L.LightningModule):
     def __init__(self):
         super().__init__()
         self.model = LLM()
+        print("Model = ", self.model)
 
     def compute_loss(self, batch):
         batch_xs, batch_ys = batch
