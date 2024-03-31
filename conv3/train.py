@@ -127,13 +127,9 @@ def load_dataset(books):
     return dataset
 
 
-def main():
-    books = sorted(
-        [
-            os.path.join("/content/simplebooks/simplebooks-2", f)
-            for f in os.listdir("/content/simplebooks/simplebooks-2")
-        ]
-    )
+def main(data_path=DATAPATH):
+    book_path = data_path / "simplebooks" / "simplebooks-2"
+    books = sorted([os.path.join(book_path, f) for f in os.listdir(book_path)])
     dataset = load_dataset(books)
 
     # Create data loader
