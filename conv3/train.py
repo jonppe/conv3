@@ -103,11 +103,9 @@ def load_dataset(data_path):
     for book_path in books:
         with open(book_path, "r", encoding="utf-8") as f:  # Added encoding parameter
             book = f.read().split(" ")
-        book = [convert(word) for word in book]
-        # here we split into chunks of sequenceSize+predictSteps so that the first half is the input and the second half is target.
-        # Currently, the chunks don't overlap. TODO: is this correct?
+        book = torch.tensor(np.array([convert(word) for word in book]))
         book_chunks = [
-            book[i : i + chunk_len] for i in range(0, len(book) - chunk_len, 512)
+            book[i : i + chunk_len] for i in range(0, len(book) - chunk_len, 1)
         ]
         dataset.extend(book_chunks)
     return dataset
