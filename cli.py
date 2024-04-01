@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python3
 from lightning.pytorch.cli import LightningCLI
 
 from conv3.train import Conv3Module, BookDataModule
