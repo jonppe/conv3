@@ -120,28 +120,34 @@ class BookDataModule(L.LightningDataModule):
         self,
         data_dir: pathlib.Path = DATAPATH / "simplebooks" / "simplebooks-2",
         batch_size: int = 512,
-        num_workers: int = 4,
-        validation_size: int = 4,
+        validation_size: int = 1024,
     ) -> None:
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
-        self.num_workers = num_workers
         self.validation_size = validation_size
 
     def setup(self, stage: str) -> None:
         self.books, self.indices = load_dataset(self.data_dir)
+        # Make sure validation set does not overlap training set
+        # This way, validation probably uses only one book
+        self.validation_start = (
+            len(self.indices)
+            - self.validation_size
+            - cfg["sequenceSize"]
+            - cfg["predictSteps"]
+        )
 
     def train_dataloader(self):
         return data.DataLoader(
-            LLMDataset(self.books, self.indices[: -self.validation_size]),
+            LLMDataset(self.books, self.indices[: self.validation_start]),
             batch_size=self.batch_size,
             shuffle=True,
         )
 
     def val_dataloader(self):
         return data.DataLoader(
-            LLMDataset(self.books, self.indices[-self.validation_size :]),
+            LLMDataset(self.books, self.indices[self.validation_start :]),
             batch_size=self.batch_size,
         )
 
