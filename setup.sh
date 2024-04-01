@@ -1,6 +1,11 @@
 #!/bin/sh
 
-DATADIR=/datasets/simplebooks
+if [ $# -eq 0 ]; then
+  DATADIR="/datasets/simplebooks"
+else
+  DATADIR="$1"
+fi
+
 mkdir -p ${DATADIR}
 
 cd ${DATADIR}

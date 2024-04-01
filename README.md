@@ -8,6 +8,12 @@ With some more description in
 
 ## Usage
 
+Get the simplebooks dataset by running setup.sh.
+
+```
+./setup.sh [optional/dest/dir]
+```
+
 The model can be trained on command line using standard pytorch lightning commands:
 
 for example
