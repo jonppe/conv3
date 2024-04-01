@@ -153,13 +153,16 @@ class BookDataModule(L.LightningDataModule):
 
 
 class Conv3Module(L.LightningModule):
-    def __init__(self, data_path: pathlib.Path = DATAPATH):
+    def __init__(self, data_path: pathlib.Path = DATAPATH, max_repeats: int = 5):
         super().__init__()
         self.model = LLM()
         print("Model = ", self.model)
         vw2v = list(w2v.items())
         self.tokens = np.array([s for s, _ in vw2v])
         self.embeddings = torch.tensor(np.array([v for _, v in vw2v]))
+        self.prev_accuracy = 0.0
+        self.max_repeats = max_repeats
+        self.automatic_optimization = False
 
     def setup(self, stage=None):
         super().setup(stage)
@@ -184,10 +187,21 @@ class Conv3Module(L.LightningModule):
         return criterion(outputs, batch_ys), accuracy, outputs
 
     def training_step(self, batch, batch_idx):
-        loss, accuracy, _ = self.compute_loss(batch)
+        repeats = 0
+        while repeats < self.max_repeats:
+            opt = self.optimizers()
+            opt.zero_grad()
+            loss, accuracy, _ = self.compute_loss(batch)
+            self.manual_backward(loss)
+            opt.step()
+            if accuracy > self.prev_accuracy:
+                break
+            repeats += 1
+
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss)
-
+        self.prev_accuracy = accuracy
+        self.log("repeats", repeats)
         # logs metrics for each training_step,
         # and the average across the epoch, to the progress bar and logger
         self.log(
