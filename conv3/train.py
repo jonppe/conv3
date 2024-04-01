@@ -184,8 +184,6 @@ class Conv3Module(L.LightningModule):
         return criterion(outputs, batch_ys), accuracy, outputs
 
     def training_step(self, batch, batch_idx):
-        print("Training step")
-
         loss, accuracy, _ = self.compute_loss(batch)
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss)
