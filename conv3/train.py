@@ -75,40 +75,44 @@ class LLM(nn.Module):
 
 
 class LLMDataset(data.Dataset):
-    def __init__(self, dataset):
-        self.dataset = dataset
+    def __init__(self, books, indices):
+        self.books = books
+        self.indices = indices
 
     def __len__(self):
-        return len(self.dataset)
+        return len(self.indices)
 
     def __getitem__(self, index):
+        book_index, start, end = self.indices[index]
+        book = self.books[book_index]
         size = cfg["sequenceSize"]
-        sample = self.dataset[index]
-        xs = np.array(sample[:size])
-        ys = np.array(sample[size : size + size])
+        xs = book[start : start + size]
+        ys = book[end - size : end]
         assert len(xs) == len(ys) == size
-        return torch.tensor(xs, dtype=torch.float32), torch.tensor(
-            ys, dtype=torch.float32
-        )
+        return xs, ys
 
 
 # Load and preprocess the dataset
 def load_dataset(data_path):
     books = sorted([os.path.join(data_path, f) for f in os.listdir(data_path)])
 
-    dataset = []
+    available_indices = []
+    book_tensors = []
     size = cfg["sequenceSize"]
     psteps = cfg["predictSteps"]
     chunk_len = size + psteps
-    for book_path in books:
+    for book_index, book_path in enumerate(books):
         with open(book_path, "r", encoding="utf-8") as f:  # Added encoding parameter
             book = f.read().split(" ")
-        book = torch.tensor(np.array([convert(word) for word in book]))
-        book_chunks = [
-            book[i : i + chunk_len] for i in range(0, len(book) - chunk_len, 1)
-        ]
-        dataset.extend(book_chunks)
-    return dataset
+        book_tensors.append(
+            torch.tensor(
+                np.array([convert(word) for word in book]), dtype=torch.float32
+            )
+        )
+        available_indices.extend(
+            [(book_index, i, i + chunk_len) for i in range(0, len(book) - chunk_len, 1)]
+        )
+    return book_tensors, available_indices
 
 
 class BookDataModule(L.LightningDataModule):
@@ -126,21 +130,19 @@ class BookDataModule(L.LightningDataModule):
         self.validation_size = validation_size
 
     def setup(self, stage: str) -> None:
-        self.dataset = load_dataset(self.data_dir)
+        self.books, self.indices = load_dataset(self.data_dir)
 
     def train_dataloader(self):
         return data.DataLoader(
-            LLMDataset(self.dataset[: self.validation_size]),
+            LLMDataset(self.books, self.indices[: -self.validation_size]),
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
         return data.DataLoader(
-            LLMDataset(self.dataset[-self.validation_size :]),
+            LLMDataset(self.books, self.indices[-self.validation_size :]),
             batch_size=self.batch_size,
-            num_workers=self.num_workers,
         )
 
 
@@ -155,7 +157,7 @@ class Conv3Module(L.LightningModule):
 
     def setup(self, stage=None):
         super().setup(stage)
-        self.embeddings = self.embeddings.to(self.device)
+        self.embeddings = self.embeddings.to(self.device, dtype=torch.float32)
 
     def reparse(self, prediction: torch.Tensor, p=float("inf")):
         indices = torch.cdist(self.embeddings, prediction, p).argmin(dim=1)
