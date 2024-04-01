@@ -1,7 +1,7 @@
 # Container for training things with a few additional dev tools (e.g. jupyter)
 FROM nvcr.io/nvidia/cuda:12.0.1-devel-ubuntu22.04
 
-RUN chmod 1777 /tmp/ && apt-get -y update && apt-get -y install python3-dev python3-pip python3-wheel python3-setuptools-whl python3-packaging python3-venv git wget unzip
+RUN chmod 1777 /tmp/ && apt-get -y update && apt-get -y install python3-dev python3-pip python3-wheel python3-setuptools-whl python3-packaging python3-venv git wget unzip nano
 
 WORKDIR /workspace
 RUN python3 -m venv .venv
