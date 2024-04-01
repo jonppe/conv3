@@ -1,0 +1,6 @@
+jupyter
+pre-commit
+pytest
+fasttext
+lightning[pytorch-extra]
+ruff
