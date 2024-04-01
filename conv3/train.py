@@ -6,7 +6,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data as data
 import numpy as np
-from sklearn.metrics.pairwise import euclidean_distances
 
 
 import lightning as L
@@ -38,30 +37,10 @@ def load_embeddings(file_path):
 
 
 w2v = load_embeddings(DATAPATH / "./vec.vec")
-vw2v = list(w2v.items())
 
 
 def convert(n):
     return w2v.get(n, np.zeros(8))
-
-
-def reverser(arr):
-    arr = arr.cpu().numpy()
-    best = float("inf")
-    max_word = None
-    for word, vec in vw2v:
-        if len(vec) == 0:
-            vec = np.zeros(8)
-        b = euclidean_distances([vec], [arr])[0][0]
-        if b < best:
-            best = b
-            max_word = word
-    return max_word
-
-
-def reparse(v):
-    v = [reverser(s) if s.nelement() else s for s in v]
-    return " ".join(v)
 
 
 # Define the model architecture
@@ -168,10 +147,22 @@ class BookDataModule(L.LightningDataModule):
 
 
 class Conv3Module(L.LightningModule):
-    def __init__(self):
+    def __init__(self, data_path: pathlib.Path = DATAPATH):
         super().__init__()
         self.model = LLM()
         print("Model = ", self.model)
+        vw2v = list(w2v.items())
+        self.tokens = np.array([s for s, _ in vw2v])
+        self.embeddings = torch.tensor(np.array([v for _, v in vw2v]))
+
+    def setup(self, stage=None):
+        super().setup(stage)
+        self.embeddings = self.embeddings.to(self.device)
+
+    def reparse(self, prediction: torch.Tensor, p=float("inf")):
+        indices = torch.cdist(self.embeddings, prediction, p).argmin(dim=1)
+        tokens = self.tokens[indices.cpu().numpy()]
+        return " ".join(tokens)
 
     def compute_loss(self, batch):
         batch_xs, batch_ys = batch
@@ -207,15 +198,12 @@ class Conv3Module(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        print("Validation step")
         loss, accuracy, outputs = self.compute_loss(batch)
         self.log("val_loss", loss)
         self.log("val_accuracy", accuracy, on_step=True, on_epoch=True, logger=True)
         if batch_idx >= 2:
             return
-        print("Reparsing")
-        output_seq = reparse(outputs[0][0:50])
-        print("Reparsing done")
+        output_seq = self.reparse(outputs[0])
 
         print(
             "---------------------------------INPUT-----------------------------------------"
